@@ -13,13 +13,16 @@ warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Movie Dashboard Recommender App", page_icon=":bar_chart:", layout="wide")
 
 def generate_wordcloud(text, colormap='YlOrBr'):
+    if not text or text.strip() == "":
+        # Create a dummy wordcloud with a placeholder message
+        text = "No data available"
     wordcloud = WordCloud(width=800, height=400, background_color='black', colormap=colormap).generate(text)
     return wordcloud
 
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_excel("dataset/Movies_IMDb.csv")
+        df = pd.read_excel("dataset/Movies_IMDb.xlsx")
         
         df['Genres'] = df['Genres'].apply(lambda x: [g.strip() for g in x.split(',')] if isinstance(x, str) else [])
         df['Genres'] = df['Genres'].apply(lambda x: list(set(x)))  # Remove duplicates in each movie's genre list
@@ -99,7 +102,7 @@ if page in ["Overview", "Deep Insights"]:
     )
     mpaa_filter = st.sidebar.multiselect(
         "Select MPAA Rating",
-        options=["All"] + sorted(df["MPAA"].dropna().unique().tolist()),
+        options=["All"] + sorted([str(x) for x in df["MPAA"].dropna().unique().tolist()]),
         default=["All"]
     )
     genre_filter = st.sidebar.multiselect(
@@ -113,7 +116,8 @@ if page in ["Overview", "Deep Insights"]:
     if "All" not in year_filter:
         filtered_df = filtered_df[filtered_df["Year"].isin(year_filter)]
     if "All" not in mpaa_filter:
-        filtered_df = filtered_df[filtered_df["MPAA"].isin(mpaa_filter)]
+        # Convert MPAA column to string for consistent comparison
+        filtered_df = filtered_df[filtered_df["MPAA"].astype(str).isin(mpaa_filter)]
 
     # Ensure 'Genres' column is properly handled when filtering
     if "All" not in genre_filter:
@@ -279,25 +283,35 @@ elif page == "Deep Insights":
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🌟 Top 5 MPAA Ratings by Number of Movies")
-        top_5_mpaa = filtered_df['MPAA'].value_counts().head(5).sort_values(ascending=False)
-        fig_top_5_mpaa = px.bar(
-            x=top_5_mpaa.index,
-            y=top_5_mpaa.values,
-            labels={'x': 'MPAA Rating', 'y': 'Number of Movies'},
-            color_discrete_sequence=['#4EB09B']
-        )
-        st.plotly_chart(fig_top_5_mpaa, use_container_width=True)
+        if 'MPAA' in filtered_df.columns and not filtered_df.empty:
+            top_5_mpaa = filtered_df['MPAA'].astype(str).value_counts().head(5).sort_values(ascending=False)
+            fig_top_5_mpaa = px.bar(
+                x=top_5_mpaa.index,
+                y=top_5_mpaa.values,
+                labels={'x': 'MPAA Rating', 'y': 'Number of Movies'},
+                color_discrete_sequence=['#4EB09B']
+            )
+            st.plotly_chart(fig_top_5_mpaa, use_container_width=True)
+        else:
+            st.write("No data available for this filter selection.")
     with col2:
         st.subheader("⏱️ Average Duration of Movies by MPAA Rating")
-        avg_duration_by_mpaa = filtered_df.groupby('MPAA')['Duration_In_Minutes'].mean().sort_values(ascending=False)
-        fig_avg_duration_by_mpaa = px.bar(
-            avg_duration_by_mpaa,
-            x=avg_duration_by_mpaa.index,
-            y=avg_duration_by_mpaa.values,
-            labels={'x': 'MPAA Rating', 'y': 'Average Duration (minutes)'},
-            color_discrete_sequence=['#A8CD89']
-        )
-        st.plotly_chart(fig_avg_duration_by_mpaa, use_container_width=True)
+        if 'MPAA' in filtered_df.columns and not filtered_df.empty:
+            # Filter out rows with non-numeric duration and group by MPAA
+            duration_data = filtered_df[pd.to_numeric(filtered_df['Duration_In_Minutes'], errors='coerce').notna()]
+            if not duration_data.empty:
+                avg_duration_by_mpaa = duration_data.groupby('MPAA')['Duration_In_Minutes'].mean().sort_values(ascending=False)
+                fig_avg_duration_by_mpaa = px.bar(
+                    x=avg_duration_by_mpaa.index,
+                    y=avg_duration_by_mpaa.values,
+                    labels={'x': 'MPAA Rating', 'y': 'Average Duration (minutes)'},
+                    color_discrete_sequence=['#A8CD89']
+                )
+                st.plotly_chart(fig_avg_duration_by_mpaa, use_container_width=True)
+            else:
+                st.write("No duration data available for this filter selection.")
+        else:
+            st.write("No data available for this filter selection.")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -336,18 +350,32 @@ elif page == "Deep Insights":
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🎬 Popular Directors")
-        directors_text = " ".join(filtered_df.explode('Director')['Director'].dropna())
-        directors_wordcloud = generate_wordcloud(directors_text)
-        plt.imshow(directors_wordcloud, interpolation='bilinear')
-        plt.axis("off")
-        st.pyplot(plt)
+        if not filtered_df.empty and 'Director' in filtered_df.columns:
+            directors_text = " ".join(filtered_df['Director'].dropna().astype(str))
+            if directors_text.strip():
+                directors_wordcloud = generate_wordcloud(directors_text)
+                plt.figure(figsize=(10, 5))
+                plt.imshow(directors_wordcloud, interpolation='bilinear')
+                plt.axis("off")
+                st.pyplot(plt)
+            else:
+                st.write("No directors data available for the selected filters.")
+        else:
+            st.write("No directors data available.")
     with col2:
         st.subheader("📖 Popular Plot Summary")
-        plot_summary_text = " ".join(filtered_df['Plot_Summary'].dropna())
-        plot_summary_wordcloud = generate_wordcloud(plot_summary_text)
-        plt.imshow(plot_summary_wordcloud, interpolation='bilinear')
-        plt.axis("off")
-        st.pyplot(plt)
+        if not filtered_df.empty and 'Plot_Summary' in filtered_df.columns:
+            plot_summary_text = " ".join(filtered_df['Plot_Summary'].dropna().astype(str))
+            if plot_summary_text.strip():
+                plot_summary_wordcloud = generate_wordcloud(plot_summary_text)
+                plt.figure(figsize=(10, 5))
+                plt.imshow(plot_summary_wordcloud, interpolation='bilinear')
+                plt.axis("off")
+                st.pyplot(plt)
+            else:
+                st.write("No plot summary data available for the selected filters.")
+        else:
+            st.write("No plot summary data available.")
         
 elif page == "Movie Recommendation System":
     
@@ -355,18 +383,18 @@ elif page == "Movie Recommendation System":
     st.write('<div style="text-align: center; font-size: 15px;">This system recommends movies based on multiple search conditions such as movie title, genres, star, and plot summary.</div>', unsafe_allow_html=True)
     st.markdown('<div class="dashed-line"></div>', unsafe_allow_html=True)
     
-    df['Title'] = df['Title'].fillna('')
-    df['Genres'] = df['Genres'].fillna('').apply(lambda x: ' '.join(x) if isinstance(x, list) else x)
-    df['Stars'] = df['Stars'].fillna('').apply(lambda x: ' '.join(x) if isinstance(x, list) else x)
-    df['Director'] = df['Director'].fillna('')
-    df['Plot_Summary'] = df['Plot_Summary'].fillna('')
+    df['Title'] = df['Title'].fillna('').astype(str)
+    df['Genres'] = df['Genres'].fillna('').apply(lambda x: ' '.join([str(g) for g in x]) if isinstance(x, list) else str(x))
+    df['Stars'] = df['Stars'].fillna('').apply(lambda x: ' '.join([str(s) for s in x]) if isinstance(x, list) else str(x))
+    df['Director'] = df['Director'].fillna('').astype(str)
+    df['Plot_Summary'] = df['Plot_Summary'].fillna('').astype(str)
 
     df['combined_features'] = (
-        df['Title'] + ' ' +
-        df['Genres'] + ' ' +
-        df['Stars'] + ' ' +
-        df['Director'] + ' ' +
-        df['Plot_Summary']
+        df['Title'].astype(str) + ' ' +
+        df['Genres'].astype(str) + ' ' +
+        df['Stars'].astype(str) + ' ' +
+        df['Director'].astype(str) + ' ' +
+        df['Plot_Summary'].astype(str)
     )
 
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
